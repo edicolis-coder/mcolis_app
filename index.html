@@ -1,81 +1,550 @@
-// api/pedido.js
-//
-// Esta função roda no servidor (nunca no navegador do cliente).
-// Ela recebe o pedido do app e repassa para o Olist ERP.
-//
-// As credenciais ficam em variáveis de ambiente, configuradas no painel
-// da Vercel (Settings > Environment Variables), NUNCA escritas aqui no código:
-//   OLIST_CLIENT_ID
-//   OLIST_CLIENT_SECRET
-//   OLIST_ACCESS_TOKEN   (gerado depois que você autorizar o app no Olist)
-//
-// Preencha OLIST_TOKEN_URL e OLIST_PEDIDO_URL conforme a documentação
-// oficial da API v3 do Olist (Swagger), pois os endpoints exatos e o
-// formato de autenticação (OAuth2) precisam ser conferidos lá antes de
-// colocar em produção: https://erp.tiny.com.br (documentação da API v3)
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comanda — App de Pedidos</title>
+<style>
+  :root{
+    --paper: #FAF7F1;
+    --paper-dark: #F1ECE1;
+    --ink: #2B2620;
+    --line: #D8D2C1;
+    --accent: #3F6B4F;
+    --accent-soft: #E7EFE9;
+    --muted: #8C8474;
+    --alert: #B5453D;
+    --mono: 'Courier New', Courier, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
 
-  const order = req.body;
+  *{ box-sizing: border-box; }
 
-  if (!order || !order.cliente || !order.itens || order.itens.length === 0) {
-    return res.status(400).json({ error: 'Pedido inválido' });
+  body{
+    margin:0;
+    background: var(--paper-dark);
+    color: var(--ink);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 24px 12px;
   }
 
-  // --- 1. Monta o corpo no formato que a API de Pedidos de Venda do Olist espera ---
-  // ATENÇÃO: os nomes de campo abaixo são um ponto de partida — confirme o
-  // schema exato na documentação/Swagger antes de usar em produção.
-  const olistPayload = {
-    cliente: {
-      nome: order.cliente.name,
-      email: order.cliente.email,
-      fone: order.cliente.phone,
-    },
-    itens: order.itens.map((item) => ({
-      descricao: item.produto,
-      quantidade: item.quantidade,
-      valorUnitario: item.preco_unitario,
-    })),
-    valorTotal: order.total,
+  .app{
+    width:100%;
+    max-width: 980px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow:hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand{
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .brand b{ color: var(--ink); }
+
+  .stamp{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 3px 8px;
+    border-radius: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ---------- LOGIN ---------- */
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  .login-wrap{
+    max-width: 380px;
+    margin: 0 auto;
+    padding: 48px 24px 56px;
+  }
+
+  .login-wrap h1{
+    font-size: 22px;
+    margin: 0 0 6px;
+  }
+
+  .login-wrap p.sub{
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 32px;
+  }
+
+  label{
+    display:block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .field{ margin-bottom: 20px; }
+
+  input{
+    width:100%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: white;
+    font-size: 15px;
+    color: var(--ink);
+    font-family: var(--sans);
+  }
+
+  input:focus{
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn{
+    width:100%;
+    padding: 13px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+
+  .btn:hover{ opacity: 0.92; }
+  .btn:disabled{ background: var(--muted); cursor: not-allowed; opacity: 0.6; }
+
+  .error{
+    color: var(--alert);
+    font-size: 13px;
+    margin-top: -12px;
+    margin-bottom: 16px;
+    display:none;
+  }
+
+  /* ---------- CATALOG + TICKET ---------- */
+  .catalog-layout{
+    display:grid;
+    grid-template-columns: 1.4fr 1fr;
+  }
+
+  @media (max-width: 720px){
+    .catalog-layout{ grid-template-columns: 1fr; }
+  }
+
+  .catalog{
+    padding: 24px 28px 28px;
+    border-right: 1px solid var(--line);
+  }
+
+  @media (max-width: 720px){
+    .catalog{ border-right:none; border-bottom: 1px solid var(--line); }
+  }
+
+  .catalog h2{
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+
+  .product{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--line);
+    gap: 16px;
+  }
+
+  .product:last-child{ border-bottom: none; }
+
+  .product-info .name{ font-size: 15px; font-weight: 600; }
+  .product-info .price{ font-family: var(--mono); font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+  .stepper{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .stepper button{
+    width: 28px;
+    height: 28px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    background: white;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--ink);
+  }
+
+  .stepper button:hover{ border-color: var(--accent); color: var(--accent); }
+
+  .stepper .qty{
+    font-family: var(--mono);
+    width: 22px;
+    text-align:center;
+    font-size: 15px;
+  }
+
+  /* Ticket / receipt */
+  .ticket-wrap{
+    padding: 24px 28px 0;
+    display:flex;
+    flex-direction: column;
+  }
+
+  .ticket-wrap h2{
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+
+  .ticket-items{
+    flex:1;
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 80px;
+  }
+
+  .ticket-empty{
+    color: var(--muted);
+    font-style: italic;
+    font-size: 13px;
+    padding: 12px 0;
+  }
+
+  .ticket-line{
+    display:flex;
+    justify-content: space-between;
+    padding: 6px 0;
+  }
+
+  .ticket-line .qty-x{ color: var(--muted); margin-right: 6px; }
+
+  .ticket-total{
+    display:flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    padding: 14px 0;
+    border-top: 1px solid var(--ink);
+    margin-top: 8px;
+  }
+
+  .tear{
+    position:relative;
+    height: 1px;
+    margin: 16px -28px 20px;
+    background: repeating-linear-gradient(90deg, var(--line) 0 8px, transparent 8px 16px);
+  }
+
+  .ticket-actions{ padding-bottom: 28px; }
+
+  .customer-line{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    line-height: 1.6;
+  }
+
+  .confirm{
+    display:none;
+    padding: 28px;
+    text-align:center;
+  }
+
+  .confirm .stamp-big{
+    display:inline-block;
+    font-family: var(--mono);
+    color: var(--accent);
+    border: 2px solid var(--accent);
+    padding: 8px 20px;
+    border-radius: 4px;
+    transform: rotate(-3deg);
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    margin-bottom: 20px;
+  }
+
+  .confirm h2{ font-size: 20px; margin: 0 0 8px; }
+  .confirm p{ color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+
+  .payload{
+    text-align:left;
+    background: var(--paper-dark);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    overflow-x:auto;
+    white-space: pre;
+    color: var(--ink);
+  }
+
+  .payload-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 20px 0 8px;
+    text-align:left;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand"><b>Comanda</b> · pedidos</div>
+    <div class="stamp" id="stepStamp">passo 1/2</div>
+  </div>
+
+  <!-- LOGIN -->
+  <div class="screen active" id="screen-login">
+    <div class="login-wrap">
+      <h1>Antes de começar</h1>
+      <p class="sub">Precisamos de alguns dados para identificar seu pedido.</p>
+
+      <div class="field">
+        <label for="name">Nome completo</label>
+        <input id="name" type="text" placeholder="Maria Silva">
+      </div>
+      <div class="field">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" placeholder="maria@email.com">
+      </div>
+      <div class="field">
+        <label for="phone">Telefone (WhatsApp)</label>
+        <input id="phone" type="tel" placeholder="(11) 91234-5678">
+      </div>
+      <div class="error" id="login-error">Preencha nome, e-mail e telefone corretamente.</div>
+
+      <button class="btn" id="btn-login">Ver produtos</button>
+    </div>
+  </div>
+
+  <!-- CATALOG -->
+  <div class="screen" id="screen-catalog">
+    <div class="catalog-layout">
+      <div class="catalog">
+        <h2>Produtos disponíveis</h2>
+        <div id="product-list"></div>
+      </div>
+
+      <div class="ticket-wrap">
+        <h2>Sua comanda</h2>
+        <div class="customer-line" id="customer-line"></div>
+        <div class="ticket-items" id="ticket-items">
+          <div class="ticket-empty">Nenhum item adicionado ainda.</div>
+        </div>
+        <div class="ticket-total">
+          <span>Total</span>
+          <span id="ticket-total">R$ 0,00</span>
+        </div>
+        <div class="tear"></div>
+        <div class="ticket-actions">
+          <button class="btn" id="btn-send" disabled>Enviar pedido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM -->
+  <div class="screen confirm" id="screen-confirm">
+    <div class="stamp-big">✓ pedido enviado</div>
+    <h2>Recebemos seu pedido</h2>
+    <p>Isto é uma simulação — em produção, este JSON seria o corpo (body) enviado por POST para o seu sistema interno.</p>
+    <div class="payload-label">Requisição que seria feita: POST /pedidos</div>
+    <div class="payload" id="payload"></div>
+  </div>
+
+</div>
+
+<script>
+  const products = [
+    { id: 'p1', name: 'Caixa de morango 500g', price: 12.90 },
+    { id: 'p2', name: 'Pacote de café 250g', price: 18.50 },
+    { id: 'p3', name: 'Queijo minas 400g', price: 24.00 },
+    { id: 'p4', name: 'Pão de fermentação natural', price: 15.00 },
+    { id: 'p5', name: 'Geleia artesanal 300g', price: 22.00 },
+    { id: 'p6', name: 'Mel silvestre 500ml', price: 28.00 },
+  ];
+
+  const state = {
+    customer: { name: '', email: '', phone: '' },
+    quantities: {}, // id -> qty
   };
 
-  try {
-    // --- 2. Autentica com o Olist ---
-    // Se você já gerar e renovar o token em outro processo, pode simplesmente
-    // usar OLIST_ACCESS_TOKEN direto. Caso contrário, troque client_id/secret
-    // por um token aqui (fluxo OAuth2 client_credentials ou refresh_token,
-    // conforme a documentação do Olist).
-    const accessToken = process.env.OLIST_ACCESS_TOKEN;
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
 
-    if (!accessToken) {
-      return res.status(500).json({
-        error: 'Token do Olist não configurado. Defina OLIST_ACCESS_TOKEN nas variáveis de ambiente.',
-      });
+  function formatBRL(v){
+    return 'R$ ' + v.toFixed(2).replace('.', ',');
+  }
+
+  function validEmail(v){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  }
+
+  function validPhone(v){
+    return v.replace(/\D/g,'').length >= 10;
+  }
+
+  document.getElementById('btn-login').addEventListener('click', () => {
+    const name = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const phone = document.getElementById('phone').value.trim();
+    const err = document.getElementById('login-error');
+
+    if(!name || !validEmail(email) || !validPhone(phone)){
+      err.style.display = 'block';
+      return;
     }
+    err.style.display = 'none';
 
-    // --- 3. Envia o pedido para o Olist ---
-    const olistResponse = await fetch(process.env.OLIST_PEDIDO_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(olistPayload),
+    state.customer = { name, email, phone };
+    document.getElementById('customer-line').textContent =
+      `${name} · ${phone}`;
+    document.getElementById('stepStamp').textContent = 'passo 2/2';
+    showScreen('screen-catalog');
+    renderProducts();
+  });
+
+  function renderProducts(){
+    const list = document.getElementById('product-list');
+    list.innerHTML = '';
+    products.forEach(p => {
+      const qty = state.quantities[p.id] || 0;
+      const row = document.createElement('div');
+      row.className = 'product';
+      row.innerHTML = `
+        <div class="product-info">
+          <div class="name">${p.name}</div>
+          <div class="price">${formatBRL(p.price)} / un</div>
+        </div>
+        <div class="stepper">
+          <button data-action="dec" data-id="${p.id}">−</button>
+          <span class="qty" id="qty-${p.id}">${qty}</span>
+          <button data-action="inc" data-id="${p.id}">+</button>
+        </div>
+      `;
+      list.appendChild(row);
     });
 
-    if (!olistResponse.ok) {
-      const errorText = await olistResponse.text();
-      console.error('Erro do Olist:', errorText);
-      return res.status(502).json({ error: 'Falha ao registrar pedido no Olist' });
+    list.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        const current = state.quantities[id] || 0;
+        if(action === 'inc') state.quantities[id] = current + 1;
+        if(action === 'dec') state.quantities[id] = Math.max(0, current - 1);
+        document.getElementById(`qty-${id}`).textContent = state.quantities[id] || 0;
+        renderTicket();
+      });
+    });
+  }
+
+  function renderTicket(){
+    const itemsEl = document.getElementById('ticket-items');
+    const totalEl = document.getElementById('ticket-total');
+    const sendBtn = document.getElementById('btn-send');
+
+    const items = products
+      .map(p => ({ ...p, qty: state.quantities[p.id] || 0 }))
+      .filter(p => p.qty > 0);
+
+    if(items.length === 0){
+      itemsEl.innerHTML = '<div class="ticket-empty">Nenhum item adicionado ainda.</div>';
+      totalEl.textContent = formatBRL(0);
+      sendBtn.disabled = true;
+      return;
     }
 
-    const olistData = await olistResponse.json();
-    return res.status(200).json({ ok: true, olist: olistData });
-  } catch (err) {
-    console.error('Erro ao enviar pedido:', err);
-    return res.status(500).json({ error: 'Erro interno ao processar o pedido' });
+    let total = 0;
+    itemsEl.innerHTML = items.map(p => {
+      const lineTotal = p.qty * p.price;
+      total += lineTotal;
+      return `<div class="ticket-line">
+        <span><span class="qty-x">${p.qty}x</span>${p.name}</span>
+        <span>${formatBRL(lineTotal)}</span>
+      </div>`;
+    }).join('');
+
+    totalEl.textContent = formatBRL(total);
+    sendBtn.disabled = false;
   }
-}
+
+  document.getElementById('btn-send').addEventListener('click', async () => {
+    const items = products
+      .map(p => ({ id: p.id, name: p.name, price: p.price, qty: state.quantities[p.id] || 0 }))
+      .filter(p => p.qty > 0);
+
+    const total = items.reduce((sum, p) => sum + p.qty * p.price, 0);
+
+    const order = {
+      cliente: state.customer,
+      itens: items.map(i => ({ produto: i.name, quantidade: i.qty, preco_unitario: i.price })),
+      total: Number(total.toFixed(2)),
+      criado_em: new Date().toISOString(),
+    };
+
+    const sendBtn = document.getElementById('btn-send');
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Enviando...';
+
+    try{
+      // Em produção (hospedado na Vercel), isso chama a função em /api/pedido,
+      // que por sua vez envia o pedido para o Olist com segurança.
+      const resp = await fetch('/api/pedido', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order),
+      });
+      if(!resp.ok) throw new Error('Falha ao enviar');
+    }catch(e){
+      // Se estiver rodando o arquivo localmente (sem backend), cai aqui.
+      // Mantemos a simulação só para você conseguir ver o fluxo funcionando.
+      console.warn('Backend não disponível, mostrando simulação:', e);
+    }
+
+    document.getElementById('payload').textContent = JSON.stringify(order, null, 2);
+    document.getElementById('stepStamp').textContent = 'concluído';
+    showScreen('screen-confirm');
+  });
+</script>
+
+</body>
+</html>
